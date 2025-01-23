@@ -37,3 +37,5 @@ If you want to install the compiled sway into your system, do:
 ```bash
 sudo ninja -C build/ install
 ```
+
+Note: To understand what a patch does and how to use it, read: `./paches/<patch_name>.md`
