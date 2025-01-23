@@ -1,0 +1,78 @@
+diff --git a/include/ipc.h b/include/ipc.h
+index ff011750..c97985b6 100644
+--- a/include/ipc.h
++++ b/include/ipc.h
+@@ -32,6 +32,7 @@ enum ipc_command_type {
+ 	IPC_EVENT_BINDING = ((1<<31) | 5),
+ 	IPC_EVENT_SHUTDOWN = ((1<<31) | 6),
+ 	IPC_EVENT_TICK = ((1<<31) | 7),
++	IPC_EVENT_CURSOR_MOVEMENT = ((1<<31) | 8),
+ 
+ 	// sway-specific event types
+ 	IPC_EVENT_BAR_STATE_UPDATE = ((1<<31) | 20),
+diff --git a/include/sway/ipc-server.h b/include/sway/ipc-server.h
+index d4c00942..3a434aad 100644
+--- a/include/sway/ipc-server.h
++++ b/include/sway/ipc-server.h
+@@ -22,5 +22,6 @@ void ipc_event_shutdown(const char *reason);
+ void ipc_event_binding(struct sway_binding *binding);
+ void ipc_event_input(const char *change, struct sway_input_device *device);
+ void ipc_event_output(void);
++void ipc_event_cursor_movement(double x, double y);
+ 
+ #endif
+diff --git a/sway/input/cursor.c b/sway/input/cursor.c
+index 235951d4..ce5628bc 100644
+--- a/sway/input/cursor.c
++++ b/sway/input/cursor.c
+@@ -31,6 +31,7 @@
+ #include "sway/tree/view.h"
+ #include "sway/tree/workspace.h"
+ #include "wlr-layer-shell-unstable-v1-protocol.h"
++#include "sway/ipc-server.h"
+ 
+ static uint32_t get_current_time_msec(void) {
+ 	struct timespec now;
+@@ -335,6 +336,7 @@ static void handle_pointer_motion_relative(
+ 
+ 	pointer_motion(cursor, e->time_msec, &e->pointer->base, e->delta_x,
+ 		e->delta_y, e->unaccel_dx, e->unaccel_dy);
++	ipc_event_cursor_movement(cursor->cursor->x, cursor->cursor->y);
+ }
+ 
+ static void handle_pointer_motion_absolute(
+diff --git a/sway/ipc-server.c b/sway/ipc-server.c
+index b934bb56..5bc95294 100644
+--- a/sway/ipc-server.c
++++ b/sway/ipc-server.c
+@@ -521,6 +521,21 @@ void ipc_event_output(void) {
+ 	json_object_put(json);
+ }
+ 
++void ipc_event_cursor_movement(double x, double y) {
++    if (!ipc_has_event_listeners(IPC_EVENT_CURSOR_MOVEMENT)) {
++        return;
++    }
++    sway_log(SWAY_DEBUG, "Sending cursor_movement event: x=%f, y=%f", x, y);
++
++    json_object *obj = json_object_new_object();
++    json_object_object_add(obj, "x", json_object_new_double(x));
++    json_object_object_add(obj, "y", json_object_new_double(y));
++
++    const char *json_string = json_object_to_json_string(obj);
++    ipc_send_event(json_string, IPC_EVENT_CURSOR_MOVEMENT);
++    json_object_put(obj);
++}
++
+ int ipc_client_handle_writable(int client_fd, uint32_t mask, void *data) {
+ 	struct ipc_client *client = data;
+ 
+@@ -761,6 +776,8 @@ void ipc_client_handle_command(struct ipc_client *client, uint32_t payload_lengt
+ 			} else if (strcmp(event_type, "tick") == 0) {
+ 				client->subscribed_events |= event_mask(IPC_EVENT_TICK);
+ 				is_tick = true;
++			} else if (strcmp(event_type, "cursor_movement") == 0) {
++				client->subscribed_events |= event_mask(IPC_EVENT_CURSOR_MOVEMENT);
+ 			} else if (strcmp(event_type, "input") == 0) {
+ 				client->subscribed_events |= event_mask(IPC_EVENT_INPUT);
+ 			} else {
